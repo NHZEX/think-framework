@@ -306,6 +306,20 @@ class Socket implements LogHandlerInterface
 
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers); //设置header
 
-        return curl_exec($ch);
+        $result = curl_exec($ch);
+        if ($this->app->isDebug() && ($result === false || curl_errno($ch) > 0)) {
+            $errMessage = sprintf(
+                '[%s] [%s:%s#%s]: %s%s',
+                date(DATE_ATOM),
+                $host,
+                $port,
+                $address,
+                curl_strerror($ch),
+                PHP_EOL
+            );
+            file_put_contents(runtime_path() . 'socket_send.log', $errMessage, FILE_APPEND);
+        }
+
+        return $result;
     }
 }
