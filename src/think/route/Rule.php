@@ -14,6 +14,7 @@ namespace think\route;
 
 use Closure;
 use think\Container;
+use think\facade\Validate;
 use think\middleware\AllowCrossDomain;
 use think\middleware\CheckRequestCache;
 use think\middleware\FormTokenCheck;
@@ -148,7 +149,7 @@ abstract class Rule
     }
 
     /**
-     * 注册变量规则
+     * 注册变量(正则）规则
      * @access public
      * @param  array $pattern 变量规则
      * @return $this
@@ -156,6 +157,25 @@ abstract class Rule
     public function pattern(array $pattern)
     {
         $this->pattern = array_merge($this->pattern, $pattern);
+
+        return $this;
+    }
+
+    /**
+     * 注册路由变量和请求变量的匹配规则（支持验证类的所有内置规则）
+     *
+     * @access public
+     * @param  string $name 变量名
+     * @param  mixed  $rule 变量规则
+     * @return $this
+     */
+    public function when(string | array $name, $rule = null)
+    {
+        if (is_array($name)) {
+            $this->option['var_rule'] = $name;
+        } else {
+            $this->option['var_rule'][$name] = $rule;
+        }
 
         return $this;
     }
@@ -389,11 +409,11 @@ abstract class Rule
      * 绑定模型
      * @access public
      * @param  array|string|Closure $var  路由变量名 多个使用 & 分割
-     * @param  string|Closure       $model 绑定模型类
-     * @param  bool                  $exception 是否抛出异常
+     * @param  string|Closure|null  $model 绑定模型类
+     * @param  bool                 $exception 是否抛出异常
      * @return $this
      */
-    public function model(array | string | Closure $var, string | Closure $model = null, bool $exception = true)
+    public function model(array | string | Closure $var, string | Closure | null $model = null, bool $exception = true)
     {
         if ($var instanceof Closure) {
             $this->option['model'][] = $var;
@@ -424,13 +444,13 @@ abstract class Rule
     /**
      * 绑定验证
      * @access public
-     * @param  mixed  $validate 验证器类
-     * @param  string $scene 验证场景
-     * @param  array  $message 验证提示
-     * @param  bool   $batch 批量验证
+     * @param  mixed        $validate 验证器类
+     * @param  string|array $scene 验证场景
+     * @param  array        $message 验证提示
+     * @param  bool         $batch 批量验证
      * @return $this
      */
-    public function validate($validate, string $scene = null, array $message = [], bool $batch = false)
+    public function validate($validate, string | array $scene = '', array $message = [], bool $batch = false)
     {
         $this->option['validate'] = [$validate, $scene, $message, $batch];
 
@@ -458,13 +478,14 @@ abstract class Rule
     }
 
     /**
-     * 不使用中间件
+     * 设置不使用的中间件 留空则为全部不用
      * @access public
+     * @param array $middleware 中间件
      * @return $this
      */
-    public function withoutMiddleware()
+    public function withoutMiddleware(array $middleware = [])
     {
-        $this->option['without_middleware'] = true;
+        $this->option['without_middleware'] = $middleware;
 
         return $this;
     }
@@ -808,10 +829,19 @@ abstract class Rule
             return false;
         }
 
-        // 请求参数检查
+        // 请求参数过滤
         if (isset($option['filter'])) {
             foreach ($option['filter'] as $name => $value) {
                 if ($request->param($name, '') != $value) {
+                    return false;
+                }
+            }
+        }
+
+        // 请求参数检查
+        if (isset($option['var_rule'])) {
+            foreach ($option['var_rule'] as $name => $rule) {
+                if ($request->has($name) && !Validate::checkRule($request->param($name), $rule)) {
                     return false;
                 }
             }

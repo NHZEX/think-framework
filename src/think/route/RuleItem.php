@@ -13,6 +13,7 @@ declare (strict_types = 1);
 namespace think\route;
 
 use think\Exception;
+use think\facade\Validate;
 use think\Request;
 use think\Route;
 
@@ -43,7 +44,7 @@ class RuleItem extends Rule
      * @param  string|\Closure   $route 路由地址
      * @param  string            $method 请求类型
      */
-    public function __construct(Route $router, RuleGroup $parent, string $name = null, string $rule = '', $route = null, string $method = '*')
+    public function __construct(Route $router, RuleGroup $parent, ?string $name = null, string $rule = '', $route = null, string $method = '*')
     {
         $this->router = $router;
         $this->parent = $parent;
@@ -162,7 +163,7 @@ class RuleItem extends Rule
      * @param  bool         $completeMatch   路由是否完全匹配
      * @return Dispatch|false
      */
-    public function checkRule(Request $request, string $url, array $match = null, bool $completeMatch = false)
+    public function checkRule(Request $request, string $url, ?array $match = null, bool $completeMatch = false)
     {
         // 检查参数有效性
         if (!$this->checkOption($this->option, $request)) {
@@ -287,6 +288,10 @@ class RuleItem extends Rule
 
             foreach ($match as $key => $val) {
                 if (is_string($key)) {
+                    if (isset($option['var_rule'][$key]) && !Validate::checkRule($val, $option['var_rule'][$key])) {
+                        // 检查变量
+                        return false;
+                    }
                     $var[$key] = $val;
                 }
             }

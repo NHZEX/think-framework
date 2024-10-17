@@ -71,6 +71,7 @@ class Validate
         'float'       => ':attribute must be float',
         'string'      => ':attribute must be string',
         'boolean'     => ':attribute must be bool',
+        'enum'        => ':attribute must be :rule enum',
         'email'       => ':attribute not a valid email address',
         'mobile'      => ':attribute not a valid mobile',
         'array'       => ':attribute must be a array',
@@ -371,15 +372,19 @@ class Validate
     }
 
     /**
-     * 设置验证场景
+     * 设置验证场景或直接指定需要验证的字段
      * @access public
-     * @param string $name 场景名
+     * @param string|array $name 场景名
      * @return $this
      */
-    public function scene(string $name)
+    public function scene(string | array $name)
     {
-        // 设置当前场景
-        $this->currentScene = $name;
+        if (is_array($name)) {
+            $this->only = $name;
+        } else {
+            // 设置当前场景
+            $this->currentScene = $name;
+        }
 
         return $this;
     }
@@ -600,8 +605,11 @@ class Validate
     public function checkRule($value, $rules): bool
     {
         if ($rules instanceof Closure) {
-            return call_user_func_array($rules, [$value]);
-        } elseif ($rules instanceof ValidateRule) {
+            $result = call_user_func_array($rules, [$value]);
+            return is_bool($result) ? $result : false;
+        }
+
+        if ($rules instanceof ValidateRule) {
             $rules = $rules->getRule();
         } elseif (is_string($rules)) {
             $rules = explode('|', $rules);
@@ -620,14 +628,7 @@ class Validate
             }
 
             if (true !== $result) {
-                if ($this->failException) {
-                    if (false === $result) {
-                        $result = $this->getRuleMsg('', '', $type, $rule);
-                    }
-                    throw new ValidateException($result, $type);
-                }
-
-                return $result;
+                return false;
             }
         }
 
