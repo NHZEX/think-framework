@@ -15,8 +15,6 @@ namespace think;
 use Closure;
 use think\exception\RouteNotFoundException;
 use think\route\Dispatch;
-use think\route\dispatch\Callback;
-use think\route\dispatch\Url as UrlDispatch;
 use think\route\Domain;
 use think\route\Resource;
 use think\route\ResourceRegister;
@@ -25,6 +23,7 @@ use think\route\RuleGroup;
 use think\route\RuleItem;
 use think\route\RuleName;
 use think\route\Url as UrlBuild;
+use think\route\UrlRuleItem;
 
 /**
  * 路由管理类
@@ -77,6 +76,8 @@ class Route
         'empty_controller'      => 'Error',
         // 是否使用控制器后缀
         'controller_suffix'     => false,
+        // 默认路由 [路由规则, 路由地址]
+        'default_route'         =>  [],
         // 默认控制器名
         'default_controller'    => 'Index',
         // 默认操作名
@@ -736,15 +737,17 @@ class Route
     {
         $this->request = $request;
         $this->host    = $this->request->host(true);
+        $completeMatch = (bool) $this->config['route_complete_match'];
 
         if ($withRoute) {
             //加载路由
             if ($withRoute instanceof Closure) {
                 $withRoute();
             }
-            $dispatch = $this->check();
+            $dispatch = $this->check($completeMatch);
         } else {
-            $dispatch = $this->url($this->path());
+            $dispatch = $this->url($this->group, $this->config['default_route'])
+                ->check($this->request, $this->path(), $completeMatch);
         }
 
         $dispatch->init($this->app);
@@ -759,15 +762,14 @@ class Route
     /**
      * 检测URL路由
      * @access public
+     * @param  bool $completeMatch
      * @return Dispatch|false
      * @throws RouteNotFoundException
      */
-    public function check()
+    public function check(bool $completeMatch = false)
     {
         // 自动检测域名路由
         $url = str_replace($this->config['pathinfo_depr'], '|', $this->path());
-
-        $completeMatch = $this->config['route_complete_match'];
 
         $result = $this->checkDomain()->check($this->request, $url, $completeMatch);
 
@@ -781,8 +783,8 @@ class Route
         } elseif ($this->config['url_route_must']) {
             throw new RouteNotFoundException();
         }
-
-        return $this->url($url);
+        return $this->url($this->group, $this->config['default_route'])
+            ->check($this->request, $url, $completeMatch);
     }
 
     /**
@@ -810,21 +812,51 @@ class Route
     }
 
     /**
-     * 默认URL解析
+     * 自动多模块路由解析
      * @access public
-     * @param string $url URL地址
-     * @return Dispatch
+     * @param  array  $rule    默认路由规则
+     * @param  string $default 默认模块
+     * @return RuleItem
      */
-    public function url(string $url): Dispatch
+    public function autoMultiModule(array $rule = [], string $default = '')
     {
-        if ($this->request->method() == 'OPTIONS') {
-            // 自动响应options请求
-            return new Callback($this->request, $this->group, function () {
-                return Response::create('', 'html', 204)->header(['Allow' => 'GET, POST, PUT, DELETE']);
-            });
+        $this->group(':module')->pattern([
+            'module' => '[A-Za-z0-9\.\_]+',
+        ])->useUrlDispatch($rule ?: $this->config['default_route']);
+
+        if ($default) {
+            $this->get('/', $default . '/' . $this->config['default_controller'] . '/' . $this->config['default_action']);
+        }
+    }
+
+    /**
+     * 注册默认URL解析路由
+     * @access public
+     * @param  RuleGroup $group 解析规则
+     * @param  array     $option 解析规则
+     * @return RuleItem
+     */
+    public function url(?RuleGroup $group = null, array $option = []): RuleItem
+    {
+        if (!empty($option)) {
+            [$rule, $route] = $option;
+        } else {
+            $group = $group ?: $this->group;
+            $name  = $group->getfullName();
+            $layer = $name ? $name . '/' : '';
+            $rule  = $layer . '[:controller]/[:action]';
+            $route = $layer . ':controller/:action';
         }
 
-        return new UrlDispatch($this->request, $this->group, $url);
+        $ruleItem = new UrlRuleItem($this, new RuleGroup($this), '_default_route_', $rule, $route);
+
+        return $ruleItem->default([
+            'controller' => $this->config['default_controller'],
+            'action'     => $this->config['default_action'],
+        ])->pattern([
+            'controller' => '[A-Za-z0-9\.\_]+',
+            'action'     => '[A-Za-z0-9\_]+',
+        ]);
     }
 
     /**
